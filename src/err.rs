@@ -7,4 +7,5 @@ pub enum Error {
     TraceLineError,
     Player1Error,
     SDLHookError,
+    SymbolError,
 }

@@ -1,24 +1,33 @@
-use crate::agent_utils::{TraceresultS, ray_scan, world_pos};
+use crate::agent_utils::{Traceresults, WorldPos, ray_scan};
 use crate::err::Error;
-use crate::sdl::SDL_event;
-
+use anyhow::Result;
+use anyhow::anyhow;
+use goblin::elf::Elf;
 use libc::{RTLD_LAZY, c_char, c_int, dl_iterate_phdr, dl_phdr_info, dlopen, dlsym, size_t};
 use std::ffi::c_void;
-use std::mem::transmute;
+use std::fs;
+use std::mem;
 use std::ptr::read_unaligned;
 
-type SdlPushEventFn = unsafe extern "C" fn(*mut SDL_event) -> i32;
-type SdlGetMouseStateFn = unsafe extern "C" fn(*const i32, *const i32) -> u32;
+use log::debug;
+
 type SdlGLSwapWindowInnerFn = unsafe extern "C" fn(*const c_void);
 
-type TracelineFn = unsafe extern "C" fn(world_pos, world_pos, u64, bool, *const TraceresultS);
-type IsVisibleFn = unsafe extern "C" fn(world_pos, world_pos, u64, bool) -> bool;
+type TracelineFn = unsafe extern "C" fn(WorldPos, WorldPos, u64, bool, *const Traceresults);
+type IsVisibleFn = unsafe extern "C" fn(WorldPos, WorldPos, u64, bool) -> bool;
 
-pub static mut SDL_PUSHEVENT: Option<SdlPushEventFn> = None;
-pub static mut SDL_GETMOUSESTATE: Option<SdlGetMouseStateFn> = None;
-pub static mut TRACE_LINE_FUNC: Option<TracelineFn> = None;
-pub static mut IS_VISIBLE_FUNC: Option<IsVisibleFn> = None;
+pub struct AcFunctions {
+    pub trace_line_func: Option<TracelineFn>,
+    pub is_visible_func: Option<IsVisibleFn>,
+}
 
+pub static mut AC_FUNCTIONS: AcFunctions = AcFunctions {
+    trace_line_func: None,
+    is_visible_func: None,
+};
+
+pub static mut PLAYER1: Option<u64> = None;
+pub static mut PLAYERS: Option<u64> = None;
 static mut MUTABLE_INNER_FUNC_PTR: Option<*mut unsafe extern "C" fn(*const c_void)> = None;
 static mut HOOK_ORIGINAL_INNER_FUNC: Option<SdlGLSwapWindowInnerFn> = None;
 
@@ -39,7 +48,7 @@ unsafe extern "C" fn hook_func(window: *const c_void) {
     }
 }
 
-pub fn sdl_gl_swap_window_hook(sdl_gl_swap_window_handle: *mut c_void) -> Result<(), Error> {
+pub fn init_sdl_gl_swap_window_hook(sdl_gl_swap_window_handle: *mut c_void) -> Result<(), Error> {
     unsafe {
         let wrapper_offset_location = sdl_gl_swap_window_handle as u64 + 0x4 + 0x2;
 
@@ -61,7 +70,7 @@ pub fn sdl_gl_swap_window_hook(sdl_gl_swap_window_handle: *mut c_void) -> Result
     Ok(())
 }
 
-pub fn sdl_gl_swap_window_recover() -> Result<(), Error> {
+pub fn recover_sdl_gl_swap_window() -> Result<(), Error> {
     unsafe {
         match MUTABLE_INNER_FUNC_PTR {
             Some(ptr) => {
@@ -77,8 +86,72 @@ pub fn sdl_gl_swap_window_recover() -> Result<(), Error> {
     }
 }
 
+pub fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
+    let bin = fs::read("/home/jacob/AC/bin_unix/native_client")?;
+    let elf = Elf::parse(&bin)?;
+
+    for sym in &elf.syms {
+        if let Some(name) = elf.strtab.get_at(sym.st_name) {
+            if name == symbol {
+                debug!("Found symbol {} @ {:#X}", symbol, sym.st_value);
+                return Ok(sym.st_value);
+            }
+        }
+    }
+
+    Err(anyhow!("Failed to find symbol {}", symbol))
+}
+
 pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
     unsafe {
+        let players_offset = get_symbol_offset("players");
+
+        PLAYERS = match players_offset {
+            Ok(offset) => {
+                println!("players offset @ {:#X}", offset);
+                Some(native_client_addr + offset)
+            }
+            Err(_) => return Err(Error::SymbolError),
+        };
+
+        let players = match PLAYERS {
+            Some(addr) => {
+                let addr = addr as *const *const u64;
+                addr
+            }
+            None => return Err(Error::Player1Error),
+        };
+
+        if (*players).is_null() {
+            return Err(Error::PlayersListError);
+        }
+
+        let player1_offset = get_symbol_offset("player1");
+
+        PLAYER1 = match player1_offset {
+            Ok(offset) => {
+                println!("player1 offset @ {:#X}", offset);
+                Some(native_client_addr + offset)
+            }
+            Err(_) => return Err(Error::SymbolError),
+        };
+
+        let trace_line_offset = get_symbol_offset("_Z9TraceLine3vecS_P6dynentbP13traceresult_sb");
+        let trace_line_addr = match trace_line_offset {
+            Ok(offset) => (native_client_addr + offset) as usize,
+            Err(_) => return Err(Error::SymbolError),
+        };
+
+        AC_FUNCTIONS.trace_line_func = Some(mem::transmute::<usize, TracelineFn>(trace_line_addr));
+
+        let is_visible_offset = get_symbol_offset("_Z9IsVisible3vecS_P6dynentb");
+        let is_visible_addr = match is_visible_offset {
+            Ok(offset) => (native_client_addr + offset) as usize,
+            Err(_) => return Err(Error::SymbolError),
+        };
+
+        AC_FUNCTIONS.is_visible_func = Some(mem::transmute::<usize, IsVisibleFn>(is_visible_addr));
+
         let sdl_lib_handle: *mut c_void = dlopen(cstr_static!("libSDL2-2.0.so"), RTLD_LAZY);
 
         if sdl_lib_handle.is_null() {
@@ -86,29 +159,7 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
         }
 
         let sdl_gl_swap_window_handle = dlsym(sdl_lib_handle, cstr_static!("SDL_GL_SwapWindow"));
-        sdl_gl_swap_window_hook(sdl_gl_swap_window_handle)?;
-
-        let sdl_push_event_handle = dlsym(sdl_lib_handle, cstr_static!("SDL_PushEvent"));
-
-        if sdl_push_event_handle.is_null() {
-            return Err(Error::DlSymError);
-        }
-
-        SDL_PUSHEVENT = transmute(sdl_push_event_handle);
-
-        let sdl_get_mouse_state_handle = dlsym(sdl_lib_handle, cstr_static!("SDL_GetMouseState"));
-
-        if sdl_push_event_handle.is_null() {
-            return Err(Error::DlSymError);
-        }
-
-        SDL_GETMOUSESTATE = transmute(sdl_get_mouse_state_handle);
-
-        let trace_line_addr = (native_client_addr + 0x134520) as usize;
-        TRACE_LINE_FUNC = Some(transmute::<usize, TracelineFn>(trace_line_addr));
-
-        let is_visible_addr = (native_client_addr + 0x2F288000) as usize;
-        IS_VISIBLE_FUNC = Some(transmute::<usize, IsVisibleFn>(is_visible_addr));
+        init_sdl_gl_swap_window_hook(sdl_gl_swap_window_handle)?;
 
         Ok(())
     }

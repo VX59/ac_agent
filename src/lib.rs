@@ -1,6 +1,5 @@
-use agent_utils::{PLAYER1, PLAYER1_REF, Playerent, closest_enemy};
 use err::Error;
-use hooks::{find_base_address, init_hooks, sdl_gl_swap_window_recover};
+use hooks::{find_base_address, init_hooks, recover_sdl_gl_swap_window};
 
 mod agent_utils;
 mod err;
@@ -21,33 +20,8 @@ static INIT: extern "C" fn() = {
 
 fn init() -> Result<(), Error> {
     let native_client_addr: u64 = find_base_address()?;
-
-    let player1 = {
-        let addr = (native_client_addr + 0x1ab4b8) as *const *const Playerent;
-        unsafe { &**addr }
-    };
-    unsafe { PLAYER1 = Some(native_client_addr + 0x1ab4b8) };
-    unsafe { PLAYER1_REF = Some(player1) };
-
-    let players_ptr = {
-        let addr = (native_client_addr + 0x1ab4c0) as *const *const u64;
-        addr
-    };
-
-    if (unsafe { *players_ptr }).is_null() {
-        return Err(Error::PlayersListError);
-    }
-
-    let players_length: usize = {
-        let length_ptr = (players_ptr as u64 + 0xC) as *const u32;
-        unsafe { *length_ptr as usize }
-    };
-
+    env_logger::init();
     init_hooks(native_client_addr)?;
-
-    let closest_enemy = closest_enemy(unsafe { *players_ptr }, players_length, player1)?;
-
-    println!("closest enemy index is {:?}", closest_enemy.health);
 
     Ok(())
 }
@@ -65,5 +39,5 @@ static FINI: extern "C" fn() = {
 };
 
 fn fini() -> Result<(), Error> {
-    sdl_gl_swap_window_recover()
+    recover_sdl_gl_swap_window()
 }

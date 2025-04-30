@@ -1,10 +1,7 @@
 use crate::err::Error;
+use log::debug;
 
-use crate::hooks::IS_VISIBLE_FUNC;
-use crate::hooks::TRACE_LINE_FUNC;
-
-pub static mut PLAYER1_REF: Option<&Playerent> = None;
-pub static mut PLAYER1: Option<u64> = None;
+use crate::hooks::{AC_FUNCTIONS, PLAYER1};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
@@ -15,23 +12,23 @@ pub struct Vec3 {
 }
 
 #[repr(C)]
-pub union world_pos {
+pub union WorldPos {
     pub v: Vec3,
     f: [f32; 3],
     i: [i32; 3],
 }
 
-impl Default for world_pos {
+impl Default for WorldPos {
     #[inline]
     fn default() -> Self {
-        world_pos { v: Vec3::default() }
+        WorldPos { v: Vec3::default() }
     }
 }
 
 #[repr(C)]
 #[derive(Default)]
-pub struct TraceresultS {
-    pub end: world_pos,
+pub struct Traceresults {
+    pub end: WorldPos,
     pub collided: bool,
     _padding: [u8; 3], // Ensure 4-byte alignment
 }
@@ -51,50 +48,48 @@ pub struct Playerent {
     pub team: i32,
 }
 
-// for navigation .. creates rays to find the walls, tbf
-pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const TraceresultS>, Error> {
-    let mut i = 0;
+/// Used in navigation to scan for walls within the yaw range (phi_min, phi_max). Draws k rays in the bounded area
+pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Traceresults>, Error> {
+    let mut rays: Vec<*const Traceresults> = vec![];
 
-    let ray_magnitude: f32 = 100.0;
-
-    let mut rays: Vec<*const TraceresultS> = vec![];
-
-    let player1 = match unsafe { PLAYER1_REF } {
-        Some(p1) => p1,
+    let player1 = match unsafe { PLAYER1 } {
+        Some(addr) => {
+            let addr = addr as *const *const Playerent;
+            unsafe { &**addr }
+        }
         None => return Err(Error::Player1Error),
     };
 
-    let traceline = match unsafe { TRACE_LINE_FUNC } {
-        Some(func) => func,
-        None => return Err(Error::TraceLineError),
-    };
+    println!(
+        "player1 pos {} {} {}",
+        player1.o.x, player1.o.y, player1.o.z
+    );
 
-    loop {
-        if i == k {
-            break;
-        }
-
+    for _ in 0..k {
         let from: Vec3 = Vec3 {
             x: player1.o.x,
             y: player1.o.y,
-            z: 5.5,
+            z: 5.0, // the head pos
         };
 
-        let world_pos_from: world_pos = world_pos { v: from };
+        let world_pos_from: WorldPos = WorldPos { v: from };
 
+        let ray_magnitude: f32 = 100.0;
+
+        // add random yaw here
         let to: Vec3 = Vec3 {
             x: from.x + f32::cos(player1.yaw) * ray_magnitude,
             y: from.y + f32::sin(player1.yaw) * ray_magnitude,
             z: from.z,
         };
 
-        let world_pos_to: world_pos = world_pos { v: to };
+        let world_pos_to: WorldPos = WorldPos { v: to };
 
-        let mut tr: TraceresultS = TraceresultS::default();
+        let mut tr: Traceresults = Traceresults::default();
 
         unsafe {
-            match PLAYER1 {
-                Some(p1) => traceline(world_pos_from, world_pos_to, p1, true, &mut tr),
+            match AC_FUNCTIONS.trace_line_func {
+                Some(func) => func(world_pos_from, world_pos_to, 0, true, &mut tr),
                 None => return Err(Error::Player1Error),
             };
 
@@ -103,9 +98,8 @@ pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Tracere
         }
 
         rays.push(&tr);
-
-        i += 1;
     }
+
     Ok(rays)
 }
 
@@ -113,33 +107,34 @@ pub fn is_enemy_visible(player1: &Playerent, player: &Playerent) -> Result<bool,
     let from: Vec3 = Vec3 {
         x: player1.o.x,
         y: player1.o.y,
-        z: player1.o.z,
+        z: player1.o.z + 5.0,
     };
 
-    let world_pos_from: world_pos = world_pos { v: from };
+    let world_pos_from: WorldPos = WorldPos { v: from };
 
     let to: Vec3 = Vec3 {
         x: player.o.x,
         y: player.o.y,
-        z: player.o.z,
+        z: player.o.z + 5.0,
     };
 
-    let world_pos_to: world_pos = world_pos { v: to };
+    let world_pos_to: WorldPos = WorldPos { v: to };
 
     unsafe {
-        match IS_VISIBLE_FUNC {
+        match AC_FUNCTIONS.is_visible_func {
             Some(func) => return Ok(func(world_pos_from, world_pos_to, 0, false)),
             None => return Err(Error::TraceLineError),
         };
     }
 }
 
+/// Used in navigation to locate the closest enemy, even if they are not visible
 pub fn closest_enemy(
     players_list_ptr: *const u64,
     players_length: usize,
     player1: &Playerent,
 ) -> Result<&Playerent, Error> {
-    let a: Vec3 = Vec3 {
+    let from: Vec3 = Vec3 {
         x: player1.o.x,
         y: player1.o.y,
         z: player1.o.z,
@@ -152,32 +147,22 @@ pub fn closest_enemy(
     let mut min_dist = f32::MAX;
     let mut closest_enemy: Option<&Playerent> = None; // player1 is 0
 
-    let mut i: usize = 0;
-
-    loop {
+    for i in 0..players_length {
         let addr = unsafe { *players_list_ptr.offset(i as isize) } as *const Playerent;
-        if i == players_length {
-            break;
-        }
-        i += 1;
-
-        if addr.is_null() {
-            continue;
-        }
-
         let player: &Playerent = unsafe { &*addr };
 
         if player.team == player1.team {
             continue;
         }
 
-        let b: Vec3 = Vec3 {
+        let to: Vec3 = Vec3 {
             x: player.o.x,
             y: player.o.y,
             z: player.o.z,
         };
-        let distance =
-            f32::sqrt(f32::powi(a.x - b.x, 2) + f32::powi(a.y - b.y, 2) + f32::powi(a.z - b.z, 2));
+        let distance = f32::sqrt(
+            f32::powi(from.x - to.x, 2) + f32::powi(from.y - to.y, 2) + f32::powi(from.z - to.z, 2),
+        );
 
         if distance < min_dist {
             min_dist = distance;

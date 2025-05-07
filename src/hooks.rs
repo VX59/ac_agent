@@ -1,4 +1,5 @@
 use crate::agent_utils::{Traceresults, WorldPos, ray_scan};
+use crate::aimbot_utils::{get_best_viewangles, update_agent_viewangles};
 use crate::err::Error;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -26,8 +27,16 @@ pub static mut AC_FUNCTIONS: AcFunctions = AcFunctions {
     is_visible_func: None,
 };
 
-pub static mut PLAYER1: Option<u64> = None;
-pub static mut PLAYERS: Option<u64> = None;
+pub struct Process {
+    pub player1_addr: Option<u64>,
+    pub players_addr: Option<u64>,
+}
+
+pub static mut PROCESS: Process = Process {
+    player1_addr: None,
+    players_addr: None,
+};
+
 static mut MUTABLE_INNER_FUNC_PTR: Option<*mut unsafe extern "C" fn(*const c_void)> = None;
 static mut HOOK_ORIGINAL_INNER_FUNC: Option<SdlGLSwapWindowInnerFn> = None;
 
@@ -38,9 +47,9 @@ macro_rules! cstr_static {
 }
 
 unsafe extern "C" fn hook_func(window: *const c_void) {
-    ray_scan(2, 0.0, 360.0).expect("ray tracing error");
-
     unsafe {
+        let _ = update_agent_viewangles();
+
         match HOOK_ORIGINAL_INNER_FUNC {
             Some(func) => func(window),
             None => (),
@@ -106,7 +115,7 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
     unsafe {
         let players_offset = get_symbol_offset("players");
 
-        PLAYERS = match players_offset {
+        PROCESS.players_addr = match players_offset {
             Ok(offset) => {
                 println!("players offset @ {:#X}", offset);
                 Some(native_client_addr + offset)
@@ -114,21 +123,9 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
             Err(_) => return Err(Error::SymbolError),
         };
 
-        let players = match PLAYERS {
-            Some(addr) => {
-                let addr = addr as *const *const u64;
-                addr
-            }
-            None => return Err(Error::Player1Error),
-        };
-
-        if (*players).is_null() {
-            return Err(Error::PlayersListError);
-        }
-
         let player1_offset = get_symbol_offset("player1");
 
-        PLAYER1 = match player1_offset {
+        PROCESS.player1_addr = match player1_offset {
             Ok(offset) => {
                 println!("player1 offset @ {:#X}", offset);
                 Some(native_client_addr + offset)

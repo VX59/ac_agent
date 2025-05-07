@@ -1,7 +1,7 @@
 use crate::err::Error;
 use log::debug;
 
-use crate::hooks::{AC_FUNCTIONS, PLAYER1};
+use crate::hooks::{AC_FUNCTIONS, PROCESS};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
@@ -36,13 +36,14 @@ pub struct Traceresults {
 #[repr(C)]
 #[derive(Clone)]
 pub struct Playerent {
-    pub pointer: Option<&'static ()>,
-    _pad_0x2c: [u8; 0x24],
+    _pad_0x2c: [u8; 0x2c],
     pub o: Vec3,
     pub yaw: f32,
     pub pitch: f32,
     pub roll: f32,
-    _pad_0x100: [u8; 0xbc],
+    _pad_0x7a: [u8; 0x36],
+    pub state: u8,
+    _pad_0x100: [u8; 0x85],
     pub health: i32,
     _pad_0x320: [u8; 0x21c],
     pub team: i32,
@@ -52,7 +53,7 @@ pub struct Playerent {
 pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Traceresults>, Error> {
     let mut rays: Vec<*const Traceresults> = vec![];
 
-    let player1 = match unsafe { PLAYER1 } {
+    let player1 = match unsafe { PROCESS.player1_addr } {
         Some(addr) => {
             let addr = addr as *const *const Playerent;
             unsafe { &**addr }
@@ -101,31 +102,6 @@ pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Tracere
     }
 
     Ok(rays)
-}
-
-pub fn is_enemy_visible(player1: &Playerent, player: &Playerent) -> Result<bool, Error> {
-    let from: Vec3 = Vec3 {
-        x: player1.o.x,
-        y: player1.o.y,
-        z: player1.o.z + 5.0,
-    };
-
-    let world_pos_from: WorldPos = WorldPos { v: from };
-
-    let to: Vec3 = Vec3 {
-        x: player.o.x,
-        y: player.o.y,
-        z: player.o.z + 5.0,
-    };
-
-    let world_pos_to: WorldPos = WorldPos { v: to };
-
-    unsafe {
-        match AC_FUNCTIONS.is_visible_func {
-            Some(func) => return Ok(func(world_pos_from, world_pos_to, 0, false)),
-            None => return Err(Error::TraceLineError),
-        };
-    }
 }
 
 /// Used in navigation to locate the closest enemy, even if they are not visible

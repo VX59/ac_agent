@@ -1,4 +1,4 @@
-use crate::agent_utils::{Traceresults, WorldPos, ray_scan};
+use crate::agent_utils::{Playerent, Traceresults, WorldPos, ray_scan};
 use crate::aimbot_utils::{get_best_viewangles, update_agent_viewangles};
 use crate::err::Error;
 use anyhow::Result;
@@ -28,13 +28,13 @@ pub static mut AC_FUNCTIONS: AcFunctions = AcFunctions {
 };
 
 pub struct Process {
-    pub player1_addr: Option<u64>,
-    pub players_addr: Option<u64>,
+    pub player1_ptr: Option<*mut Playerent>,
+    pub players_ptr: Option<*const *const u64>,
 }
 
 pub static mut PROCESS: Process = Process {
-    player1_addr: None,
-    players_addr: None,
+    player1_ptr: None,
+    players_ptr: None,
 };
 
 static mut MUTABLE_INNER_FUNC_PTR: Option<*mut unsafe extern "C" fn(*const c_void)> = None;
@@ -115,7 +115,7 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
     unsafe {
         let players_offset = get_symbol_offset("players");
 
-        PROCESS.players_addr = match players_offset {
+        let players_addr = match players_offset {
             Ok(offset) => {
                 println!("players offset @ {:#X}", offset);
                 Some(native_client_addr + offset)
@@ -123,14 +123,30 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
             Err(_) => return Err(Error::SymbolError),
         };
 
+        PROCESS.players_ptr = match players_addr {
+            Some(addr) => {
+                let ptr = addr as *const *const u64;
+                Some(ptr)
+            }
+            None => return Err(Error::PlayersListError),
+        };
+
         let player1_offset = get_symbol_offset("player1");
 
-        PROCESS.player1_addr = match player1_offset {
+        let player1_addr = match player1_offset {
             Ok(offset) => {
                 println!("player1 offset @ {:#X}", offset);
                 Some(native_client_addr + offset)
             }
             Err(_) => return Err(Error::SymbolError),
+        };
+
+        PROCESS.player1_ptr = match player1_addr {
+            Some(addr) => {
+                let ptr = addr as *const *mut Playerent;
+                Some(*ptr)
+            }
+            None => return Err(Error::Player1Error),
         };
 
         let trace_line_offset = get_symbol_offset("_Z9TraceLine3vecS_P6dynentbP13traceresult_sb");

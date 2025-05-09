@@ -1,5 +1,4 @@
 use crate::err::Error;
-use log::debug;
 
 use crate::hooks::{AC_FUNCTIONS, PROCESS};
 
@@ -64,24 +63,25 @@ pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Tracere
         };
 
         for _ in 0..k {
-            let from: Vec3 = Vec3 {
-                x: player1.o.x,
-                y: player1.o.y,
-                z: player1.head.z,
+            let world_pos_from: WorldPos = WorldPos {
+                v: Vec3 {
+                    x: player1.o.x,
+                    y: player1.o.y,
+                    z: player1.head.z,
+                },
             };
-
-            let world_pos_from: WorldPos = WorldPos { v: from };
 
             let ray_magnitude: f32 = 100.0;
 
             // add random yaw here
-            let to: Vec3 = Vec3 {
-                x: from.x + f32::cos(player1.yaw) * ray_magnitude,
-                y: from.y + f32::sin(player1.yaw) * ray_magnitude,
-                z: from.z,
-            };
 
-            let world_pos_to: WorldPos = WorldPos { v: to };
+            let world_pos_to: WorldPos = WorldPos {
+                v: Vec3 {
+                    x: world_pos_from.v.x + f32::cos(player1.yaw) * ray_magnitude,
+                    y: world_pos_from.v.y + f32::sin(player1.yaw) * ray_magnitude,
+                    z: world_pos_from.v.z,
+                },
+            };
 
             let mut tr: Traceresults = Traceresults::default();
 

@@ -96,7 +96,7 @@ pub fn recover_sdl_gl_swap_window() -> Result<(), Error> {
 }
 
 pub fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
-    let bin = fs::read("/home/jacob/AC/bin_unix/native_client")?;
+    let bin = fs::read("/proc/self/exe")?;
     let elf = Elf::parse(&bin)?;
 
     for sym in &elf.syms {

@@ -39,22 +39,21 @@ pub fn is_valid_target(player1: &Playerent, player: &Playerent) -> Result<bool, 
 fn viewangle(player1: &Playerent, player: &Playerent) -> Vec3 {
     let dx = player.o.x - player1.o.x;
     let dy = player.o.y - player1.o.y;
-    let dz = player.head.z - player1.head.z;
-
-    let h: f32 = (dx.powf(2.0) + dy.powf(2.0)).sqrt();
 
     let yaw = (dy.atan2(dx) + (PI / 2.0)) * (180.0 / PI);
+
+    let dz = player.head.z - player1.head.z;
+    let h: f32 = (dx.powi(2) + dy.powi(2)).sqrt();
+
     let pitch = dz.atan2(h) * (180.0 / PI);
 
     let hr = (pitch.powi(2) + yaw.powi(2)).sqrt();
 
-    let view_angle = Vec3 {
+    return Vec3 {
         x: yaw,
         y: pitch,
         z: hr,
     };
-
-    return view_angle;
 }
 
 pub fn is_combat_ready(player1: &Playerent) -> Result<bool, Error> {

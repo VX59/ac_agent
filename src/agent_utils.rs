@@ -73,13 +73,7 @@ pub fn ray_scan(k: u32, yaw_radius: f32) -> Result<Vec<*const Traceresults>, Err
         let max_yaw = player1.yaw + yaw_radius + theta_offset;
 
         for _ in 0..k {
-            let world_pos_from: WorldPos = WorldPos {
-                v: Vec3 {
-                    x: player1.o.x,
-                    y: player1.o.y,
-                    z: player1.head.z,
-                },
-            };
+            let world_pos_from: WorldPos = WorldPos { v: player1.head };
 
             let random_yaw = yaw_rng.gen_range(min_yaw..max_yaw);
 
@@ -116,7 +110,7 @@ fn vec_distance(from: Vec3, to: Vec3) -> f32 {
 
 fn is_trackable_target(player1: &Playerent, player: &Playerent) -> Result<bool, Error> {
     let mut trackable = false;
-    if player.team != player1.team {
+    if player.team != player1.team || player.state == 1 {
         trackable = true;
     }
 
@@ -138,12 +132,6 @@ fn closest_enemy(
             return Err(Error::PlayersListError);
         }
 
-        let from: Vec3 = Vec3 {
-            x: player1.o.x,
-            y: player1.o.y,
-            z: player1.head.z,
-        };
-
         let players_list_ptr = *players;
         let players_list = std::slice::from_raw_parts(players_list_ptr.add(1), players_length - 1);
 
@@ -155,14 +143,7 @@ fn closest_enemy(
                 (player, is_trackable_target(player1, player))
             })
             .filter_map(|(player, result)| match result {
-                Ok(true) => {
-                    let to: Vec3 = Vec3 {
-                        x: player.o.x,
-                        y: player.o.y,
-                        z: player.head.z,
-                    };
-                    Some(Ok((player, vec_distance(from, to))))
-                }
+                Ok(true) => Some(Ok((player, vec_distance(player1.head, player.head)))),
                 Ok(false) => None,
                 Err(e) => return Some(Err(e)),
             })

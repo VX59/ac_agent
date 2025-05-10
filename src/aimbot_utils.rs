@@ -9,26 +9,15 @@ pub fn is_valid_target(player1: &Playerent, player: &Playerent) -> Result<bool, 
         return Ok(false);
     }
 
-    let world_pos_from: WorldPos = WorldPos {
-        v: Vec3 {
-            x: player1.o.x,
-            y: player1.o.y,
-            z: player1.head.z,
-        },
-    };
-
-    let world_pos_to: WorldPos = WorldPos {
-        v: Vec3 {
-            x: player.o.x,
-            y: player.o.y,
-            z: player.head.z,
-        },
-    };
-
     unsafe {
         match AC_FUNCTIONS.is_visible_func {
             Some(func) => {
-                let result = func(world_pos_from, world_pos_to, 0, false);
+                let result = func(
+                    WorldPos { v: player1.head },
+                    WorldPos { v: player.head },
+                    0,
+                    false,
+                );
                 return Ok(result);
             }
             None => return Err(Error::TraceLineError),
@@ -91,31 +80,31 @@ pub fn get_best_viewangles(
 
         let players_list = std::slice::from_raw_parts(players_list_ptr.add(1), players_length - 1);
 
-        let mut min_view_angle: Result<Option<Vec3>, Error> = Ok(None);
-
-        let combat_ready = match is_combat_ready(player1) {
-            Ok(result) => result,
+        match is_combat_ready(player1) {
+            Ok(result) => {
+                if !result {
+                    return Ok(None);
+                }
+            }
             Err(_) => return Err(Error::Player1Error),
         };
 
-        if combat_ready {
-            min_view_angle = players_list
-                .iter()
-                .map(|&ptr| {
-                    let player = &*(ptr as *const Playerent);
-                    (player, is_valid_target(player1, player))
-                })
-                .filter_map(|(player, result)| match result {
-                    Ok(true) => Some(Ok(viewangle(player1, player))),
-                    Ok(false) => None,
-                    Err(e) => return Some(Err(e)),
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(|vec| {
-                    vec.into_iter()
-                        .min_by(|a, b| a.z.partial_cmp(&b.z).unwrap_or(std::cmp::Ordering::Equal))
-                });
-        }
+        let min_view_angle = players_list
+            .iter()
+            .map(|&ptr| {
+                let player = &*(ptr as *const Playerent);
+                (player, is_valid_target(player1, player))
+            })
+            .filter_map(|(player, result)| match result {
+                Ok(true) => Some(Ok(viewangle(player1, player))),
+                Ok(false) => None,
+                Err(e) => return Some(Err(e)),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|vec| {
+                vec.into_iter()
+                    .min_by(|a, b| a.z.partial_cmp(&b.z).unwrap_or(std::cmp::Ordering::Equal))
+            });
 
         match min_view_angle {
             Ok(Some(vec)) => Ok(Some(vec)),

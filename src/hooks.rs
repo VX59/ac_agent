@@ -1,5 +1,5 @@
-use crate::agent_utils::{Playerent, Traceresults, WorldPos, process_next_target, ray_scan};
-use crate::aimbot_utils::{get_best_viewangles, update_agent_viewangles};
+use crate::agent_utils::{Playerent, Traceresults, WorldPos, process_next_target};
+use crate::aimbot_utils::update_agent_viewangles;
 use crate::err::Error;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -95,7 +95,7 @@ pub fn recover_sdl_gl_swap_window() -> Result<(), Error> {
     }
 }
 
-pub fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
+fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
     let bin = fs::read("/proc/self/exe")?;
     let elf = Elf::parse(&bin)?;
 
@@ -111,15 +111,20 @@ pub fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
     Err(anyhow!("Failed to find symbol {}", symbol))
 }
 
+fn get_fn_address(base_addr: u64, symbol: &str) -> Result<usize, Error> {
+    let fn_offset = get_symbol_offset(symbol);
+    match fn_offset {
+        Ok(offset) => Ok((base_addr + offset) as usize),
+        Err(_) => return Err(Error::SymbolError),
+    }
+}
+
 pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
     unsafe {
         let players_offset = get_symbol_offset("players");
 
         let players_addr = match players_offset {
-            Ok(offset) => {
-                println!("players offset @ {:#X}", offset);
-                Some(native_client_addr + offset)
-            }
+            Ok(offset) => Some(native_client_addr + offset),
             Err(_) => return Err(Error::SymbolError),
         };
 
@@ -134,10 +139,7 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
         let player1_offset = get_symbol_offset("player1");
 
         let player1_addr = match player1_offset {
-            Ok(offset) => {
-                println!("player1 offset @ {:#X}", offset);
-                Some(native_client_addr + offset)
-            }
+            Ok(offset) => Some(native_client_addr + offset),
             Err(_) => return Err(Error::SymbolError),
         };
 
@@ -149,21 +151,15 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
             None => return Err(Error::Player1Error),
         };
 
-        let trace_line_offset = get_symbol_offset("_Z9TraceLine3vecS_P6dynentbP13traceresult_sb");
-        let trace_line_addr = match trace_line_offset {
-            Ok(offset) => (native_client_addr + offset) as usize,
-            Err(_) => return Err(Error::SymbolError),
-        };
+        AC_FUNCTIONS.trace_line_func = Some(mem::transmute::<usize, TracelineFn>(get_fn_address(
+            native_client_addr,
+            "_Z9TraceLine3vecS_P6dynentbP13traceresult_sb",
+        )?));
 
-        AC_FUNCTIONS.trace_line_func = Some(mem::transmute::<usize, TracelineFn>(trace_line_addr));
-
-        let is_visible_offset = get_symbol_offset("_Z9IsVisible3vecS_P6dynentb");
-        let is_visible_addr = match is_visible_offset {
-            Ok(offset) => (native_client_addr + offset) as usize,
-            Err(_) => return Err(Error::SymbolError),
-        };
-
-        AC_FUNCTIONS.is_visible_func = Some(mem::transmute::<usize, IsVisibleFn>(is_visible_addr));
+        AC_FUNCTIONS.is_visible_func = Some(mem::transmute::<usize, IsVisibleFn>(get_fn_address(
+            native_client_addr,
+            "_Z9IsVisible3vecS_P6dynentb",
+        )?));
 
         let sdl_lib_handle: *mut c_void = dlopen(cstr_static!("libSDL2-2.0.so"), RTLD_LAZY);
 

@@ -2,6 +2,7 @@ use err::Error;
 use hooks::{find_base_address, init_hooks, recover_sdl_gl_swap_window};
 
 mod agent_utils;
+mod aimbot_utils;
 mod err;
 mod hooks;
 mod sdl;

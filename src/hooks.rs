@@ -1,4 +1,5 @@
-use crate::agent_utils::{Traceresults, WorldPos, ray_scan};
+use crate::agent_utils::{Playerent, Traceresults, WorldPos, process_next_target};
+use crate::aimbot_utils::update_agent_viewangles;
 use crate::err::Error;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -26,8 +27,16 @@ pub static mut AC_FUNCTIONS: AcFunctions = AcFunctions {
     is_visible_func: None,
 };
 
-pub static mut PLAYER1: Option<u64> = None;
-pub static mut PLAYERS: Option<u64> = None;
+pub struct Process {
+    pub player1_ptr: Option<*mut Playerent>,
+    pub players_ptr: Option<*const *const u64>,
+}
+
+pub static mut PROCESS: Process = Process {
+    player1_ptr: None,
+    players_ptr: None,
+};
+
 static mut MUTABLE_INNER_FUNC_PTR: Option<*mut unsafe extern "C" fn(*const c_void)> = None;
 static mut HOOK_ORIGINAL_INNER_FUNC: Option<SdlGLSwapWindowInnerFn> = None;
 
@@ -38,9 +47,9 @@ macro_rules! cstr_static {
 }
 
 unsafe extern "C" fn hook_func(window: *const c_void) {
-    ray_scan(2, 0.0, 360.0).expect("ray tracing error");
-
     unsafe {
+        let _ = update_agent_viewangles();
+        let _ = process_next_target();
         match HOOK_ORIGINAL_INNER_FUNC {
             Some(func) => func(window),
             None => (),
@@ -86,8 +95,8 @@ pub fn recover_sdl_gl_swap_window() -> Result<(), Error> {
     }
 }
 
-pub fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
-    let bin = fs::read("/home/jacob/AC/bin_unix/native_client")?;
+fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
+    let bin = fs::read("/proc/self/exe")?;
     let elf = Elf::parse(&bin)?;
 
     for sym in &elf.syms {
@@ -102,55 +111,55 @@ pub fn get_symbol_offset(symbol: &str) -> anyhow::Result<u64> {
     Err(anyhow!("Failed to find symbol {}", symbol))
 }
 
+fn get_fn_address(base_addr: u64, symbol: &str) -> Result<usize, Error> {
+    let fn_offset = get_symbol_offset(symbol);
+    match fn_offset {
+        Ok(offset) => Ok((base_addr + offset) as usize),
+        Err(_) => return Err(Error::SymbolError),
+    }
+}
+
 pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
     unsafe {
         let players_offset = get_symbol_offset("players");
 
-        PLAYERS = match players_offset {
-            Ok(offset) => {
-                println!("players offset @ {:#X}", offset);
-                Some(native_client_addr + offset)
-            }
+        let players_addr = match players_offset {
+            Ok(offset) => Some(native_client_addr + offset),
             Err(_) => return Err(Error::SymbolError),
         };
 
-        let players = match PLAYERS {
+        PROCESS.players_ptr = match players_addr {
             Some(addr) => {
-                let addr = addr as *const *const u64;
-                addr
+                let ptr = addr as *const *const u64;
+                Some(ptr)
+            }
+            None => return Err(Error::PlayersListError),
+        };
+
+        let player1_offset = get_symbol_offset("player1");
+
+        let player1_addr = match player1_offset {
+            Ok(offset) => Some(native_client_addr + offset),
+            Err(_) => return Err(Error::SymbolError),
+        };
+
+        PROCESS.player1_ptr = match player1_addr {
+            Some(addr) => {
+                let ptr = addr as *const *mut Playerent;
+                Some(*ptr)
             }
             None => return Err(Error::Player1Error),
         };
 
-        if (*players).is_null() {
-            return Err(Error::PlayersListError);
-        }
+        AC_FUNCTIONS.trace_line_func = Some(mem::transmute::<usize, TracelineFn>(get_fn_address(
+            native_client_addr,
+            "_Z9TraceLine3vecS_P6dynentbP13traceresult_sb",
+        )?));
 
-        let player1_offset = get_symbol_offset("player1");
-
-        PLAYER1 = match player1_offset {
-            Ok(offset) => {
-                println!("player1 offset @ {:#X}", offset);
-                Some(native_client_addr + offset)
-            }
-            Err(_) => return Err(Error::SymbolError),
-        };
-
-        let trace_line_offset = get_symbol_offset("_Z9TraceLine3vecS_P6dynentbP13traceresult_sb");
-        let trace_line_addr = match trace_line_offset {
-            Ok(offset) => (native_client_addr + offset) as usize,
-            Err(_) => return Err(Error::SymbolError),
-        };
-
-        AC_FUNCTIONS.trace_line_func = Some(mem::transmute::<usize, TracelineFn>(trace_line_addr));
-
-        let is_visible_offset = get_symbol_offset("_Z9IsVisible3vecS_P6dynentb");
-        let is_visible_addr = match is_visible_offset {
-            Ok(offset) => (native_client_addr + offset) as usize,
-            Err(_) => return Err(Error::SymbolError),
-        };
-
-        AC_FUNCTIONS.is_visible_func = Some(mem::transmute::<usize, IsVisibleFn>(is_visible_addr));
+        AC_FUNCTIONS.is_visible_func = Some(mem::transmute::<usize, IsVisibleFn>(get_fn_address(
+            native_client_addr,
+            "_Z9IsVisible3vecS_P6dynentb",
+        )?));
 
         let sdl_lib_handle: *mut c_void = dlopen(cstr_static!("libSDL2-2.0.so"), RTLD_LAZY);
 

@@ -1,4 +1,4 @@
-use crate::agent_utils::{Playerent, Traceresults, WorldPos, ray_scan};
+use crate::agent_utils::{Playerent, Traceresults, WorldPos, process_next_target, ray_scan};
 use crate::aimbot_utils::{get_best_viewangles, update_agent_viewangles};
 use crate::err::Error;
 use anyhow::Result;
@@ -49,7 +49,7 @@ macro_rules! cstr_static {
 unsafe extern "C" fn hook_func(window: *const c_void) {
     unsafe {
         let _ = update_agent_viewangles();
-
+        let _ = process_next_target();
         match HOOK_ORIGINAL_INNER_FUNC {
             Some(func) => func(window),
             None => (),

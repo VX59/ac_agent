@@ -1,3 +1,6 @@
+use libc::close;
+use rand::Rng;
+
 use crate::err::Error;
 
 use crate::hooks::{AC_FUNCTIONS, PROCESS};
@@ -53,7 +56,7 @@ pub struct Playerent {
 }
 
 /// Used in navigation to scan for walls within the yaw range (phi_min, phi_max). Draws k rays in the bounded area
-pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Traceresults>, Error> {
+pub fn ray_scan(k: u32, yaw_radius: f32) -> Result<Vec<*const Traceresults>, Error> {
     unsafe {
         let mut rays: Vec<*const Traceresults> = vec![];
 
@@ -61,6 +64,13 @@ pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Tracere
             Some(ptr) => &mut *ptr,
             None => return Err(Error::Player1Error),
         };
+
+        let ray_magnitude: f32 = 100.0;
+        let mut yaw_rng = rand::thread_rng();
+
+        let theta_offset = 90.0; // to face forwards
+        let min_yaw = player1.yaw - yaw_radius + theta_offset;
+        let max_yaw = player1.yaw + yaw_radius + theta_offset;
 
         for _ in 0..k {
             let world_pos_from: WorldPos = WorldPos {
@@ -71,14 +81,12 @@ pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Tracere
                 },
             };
 
-            let ray_magnitude: f32 = 100.0;
-
-            // add random yaw here
+            let random_yaw = yaw_rng.gen_range(min_yaw..max_yaw);
 
             let world_pos_to: WorldPos = WorldPos {
                 v: Vec3 {
-                    x: world_pos_from.v.x + f32::cos(player1.yaw) * ray_magnitude,
-                    y: world_pos_from.v.y + f32::sin(player1.yaw) * ray_magnitude,
+                    x: world_pos_from.v.x + f32::cos(random_yaw) * ray_magnitude,
+                    y: world_pos_from.v.y + f32::sin(random_yaw) * ray_magnitude,
                     z: world_pos_from.v.z,
                 },
             };
@@ -100,50 +108,97 @@ pub fn ray_scan(k: u32, phi_min: f32, phi_max: f32) -> Result<Vec<*const Tracere
     }
 }
 
+fn vec_distance(from: Vec3, to: Vec3) -> f32 {
+    f32::sqrt(
+        f32::powi(from.x - to.x, 2) + f32::powi(from.y - to.y, 2) + f32::powi(from.z - to.z, 2),
+    )
+}
+
+fn is_trackable_target(player1: &Playerent, player: &Playerent) -> Result<bool, Error> {
+    let mut trackable = false;
+    if player.team != player1.team {
+        trackable = true;
+    }
+
+    Ok(trackable)
+}
+
 /// Used in navigation to locate the closest enemy, even if they are not visible
-pub fn closest_enemy(
-    players_list_ptr: *const u64,
-    players_length: usize,
+fn closest_enemy(
     player1: &Playerent,
-) -> Result<&Playerent, Error> {
-    let from: Vec3 = Vec3 {
-        x: player1.o.x,
-        y: player1.o.y,
-        z: player1.head.z,
-    };
-
-    if players_list_ptr.is_null() {
-        return Err(Error::PlayersListError);
-    }
-
-    let mut min_dist = f32::MAX;
-    let mut closest_enemy: Option<&Playerent> = None; // player1 is 0
-
-    for i in 0..players_length {
-        let addr = unsafe { *players_list_ptr.offset(i as isize) } as *const Playerent;
-        let player: &Playerent = unsafe { &*addr };
-
-        if player.team == player1.team {
-            continue;
-        }
-
-        let to: Vec3 = Vec3 {
-            x: player.o.x,
-            y: player.o.y,
-            z: player.head.z,
+    players: *const *const u64,
+) -> Result<Option<*const Playerent>, Error> {
+    unsafe {
+        let players_length: usize = {
+            let length_addr = (players as u64 + 0xC) as *const u32;
+            *length_addr as usize
         };
-        let distance = f32::sqrt(
-            f32::powi(from.x - to.x, 2) + f32::powi(from.y - to.y, 2) + f32::powi(from.z - to.z, 2),
-        );
 
-        if distance < min_dist {
-            min_dist = distance;
-            closest_enemy = Some(player);
+        if (*players).is_null() {
+            return Err(Error::PlayersListError);
+        }
+
+        let from: Vec3 = Vec3 {
+            x: player1.o.x,
+            y: player1.o.y,
+            z: player1.head.z,
+        };
+
+        let players_list_ptr = *players;
+        let players_list = std::slice::from_raw_parts(players_list_ptr.add(1), players_length - 1);
+
+        let closest_enemy = players_list
+            .iter()
+            .map(|&ptr| {
+                let player = &*(ptr as *const Playerent);
+
+                (player, is_trackable_target(player1, player))
+            })
+            .filter_map(|(player, result)| match result {
+                Ok(true) => {
+                    let to: Vec3 = Vec3 {
+                        x: player.o.x,
+                        y: player.o.y,
+                        z: player.head.z,
+                    };
+                    Some(Ok((player, vec_distance(from, to))))
+                }
+                Ok(false) => None,
+                Err(e) => return Some(Err(e)),
+            })
+            .collect::<Result<Vec<(&Playerent, f32)>, Error>>()
+            .map(|player_distances| {
+                player_distances
+                    .into_iter()
+                    .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(player, _)| player)
+            });
+
+        match closest_enemy {
+            Ok(Some(enemy)) => Ok(Some(enemy)),
+            Ok(None) => Ok(None),
+            Err(_) => Err(Error::PlayersListError),
         }
     }
+}
 
-    match closest_enemy {
-        Some(enemy) => Ok(enemy),
-        None => Err(Error::PlayersListError),
+/// used to locate nearest enemy after navigating a path
+pub fn process_next_target() -> Result<(), Error> {
+    unsafe {
+        let player1: &mut Playerent = match PROCESS.player1_ptr {
+            Some(ptr) => &mut *ptr,
+            None => return Err(Error::Player1Error),
+        };
+
+        let players = match PROCESS.players_ptr {
+            Some(ptr) => ptr,
+            None => return Err(Error::PlayersListError),
+        };
+
+        if let Some(next_target) = closest_enemy(player1, players)? {
+            // do some stuff here
+        }
+
+        Ok(())
     }
 }

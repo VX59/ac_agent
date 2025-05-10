@@ -89,7 +89,7 @@ pub fn get_best_viewangles(
 
         let players_list_ptr = *players;
 
-        let playerslist = std::slice::from_raw_parts(players_list_ptr.add(1), players_length - 1);
+        let players_list = std::slice::from_raw_parts(players_list_ptr.add(1), players_length - 1);
 
         let mut min_view_angle: Result<Option<Vec3>, Error> = Ok(None);
 
@@ -99,7 +99,7 @@ pub fn get_best_viewangles(
         };
 
         if combat_ready {
-            min_view_angle = playerslist
+            min_view_angle = players_list
                 .iter()
                 .map(|&ptr| {
                     let player = &*(ptr as *const Playerent);

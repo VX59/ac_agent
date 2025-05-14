@@ -1,6 +1,7 @@
 use crate::agent_utils::{Playerent, Traceresults, WorldPos, process_next_target};
 use crate::aimbot_utils::update_agent_viewangles;
 use crate::err::Error;
+use crate::esp::draw_rectangle;
 use anyhow::Result;
 use anyhow::anyhow;
 use goblin::elf::Elf;
@@ -17,6 +18,14 @@ type SdlGLSwapWindowInnerFn = unsafe extern "C" fn(*const c_void);
 type TracelineFn = unsafe extern "C" fn(WorldPos, WorldPos, u64, bool, *const Traceresults);
 type IsVisibleFn = unsafe extern "C" fn(WorldPos, WorldPos, u64, bool) -> bool;
 
+type GlBeginFn = unsafe extern "C" fn(i32);
+type GlEndFn = unsafe extern "C" fn();
+type GlVertex2fFn = unsafe extern "C" fn(f32, f32);
+type GlLineWidthFn = unsafe extern "C" fn(f32);
+type GlColor3fFn = unsafe extern "C" fn(f32, f32, f32);
+type GlEnableFn = unsafe extern "C" fn(u32);
+type GlDisableFn = unsafe extern "C" fn(u32);
+
 pub struct AcFunctions {
     pub trace_line_func: Option<TracelineFn>,
     pub is_visible_func: Option<IsVisibleFn>,
@@ -25,6 +34,26 @@ pub struct AcFunctions {
 pub static mut AC_FUNCTIONS: AcFunctions = AcFunctions {
     trace_line_func: None,
     is_visible_func: None,
+};
+
+pub struct OpenglFunctions {
+    pub gl_begin: Option<GlBeginFn>,
+    pub gl_end: Option<GlEndFn>,
+    pub gl_vertex_2f: Option<GlVertex2fFn>,
+    pub gl_line_width: Option<GlLineWidthFn>,
+    pub gl_color_3f: Option<GlColor3fFn>,
+    pub gl_enable: Option<GlEnableFn>,
+    pub gl_disable: Option<GlDisableFn>,
+}
+
+pub static mut OPENGL_FUNCTIONS: OpenglFunctions = OpenglFunctions {
+    gl_begin: None,
+    gl_end: None,
+    gl_vertex_2f: None,
+    gl_line_width: None,
+    gl_color_3f: None,
+    gl_enable: None,
+    gl_disable: None,
 };
 
 pub struct Process {
@@ -50,6 +79,8 @@ unsafe extern "C" fn hook_func(window: *const c_void) {
     unsafe {
         let _ = update_agent_viewangles();
         let _ = process_next_target();
+        draw_rectangle(100.0, 300.0, 500.0, 600.0);
+
         match HOOK_ORIGINAL_INNER_FUNC {
             Some(func) => func(window),
             None => (),
@@ -169,6 +200,36 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
 
         let sdl_gl_swap_window_handle = dlsym(sdl_lib_handle, cstr_static!("SDL_GL_SwapWindow"));
         init_sdl_gl_swap_window_hook(sdl_gl_swap_window_handle)?;
+
+        let opengl_lib_handle: *mut c_void = dlopen(cstr_static!("libGL.so.1.7.0"), RTLD_LAZY);
+        println!("opengl lib handle {:#x}", opengl_lib_handle as u64);
+
+        let gl_begin_handle = dlsym(opengl_lib_handle, cstr_static!("glBegin"));
+        let gl_end_handle = dlsym(opengl_lib_handle, cstr_static!("glEnd"));
+        let gl_vertex_2f_handle = dlsym(opengl_lib_handle, cstr_static!("glVertex2f"));
+        let gl_line_width_handle = dlsym(opengl_lib_handle, cstr_static!("glLineWidth"));
+        let gl_color_3f_handle = dlsym(opengl_lib_handle, cstr_static!("glColor3f"));
+        let gl_enable_handle = dlsym(opengl_lib_handle, cstr_static!("glEnable"));
+        let gl_disable_handle = dlsym(opengl_lib_handle, cstr_static!("glDisable"));
+
+        OPENGL_FUNCTIONS.gl_begin =
+            Some(mem::transmute::<*const c_void, GlBeginFn>(gl_begin_handle));
+        OPENGL_FUNCTIONS.gl_end = Some(mem::transmute::<*const c_void, GlEndFn>(gl_end_handle));
+        OPENGL_FUNCTIONS.gl_vertex_2f = Some(mem::transmute::<*const c_void, GlVertex2fFn>(
+            gl_vertex_2f_handle,
+        ));
+        OPENGL_FUNCTIONS.gl_line_width = Some(mem::transmute::<*const c_void, GlLineWidthFn>(
+            gl_line_width_handle,
+        ));
+        OPENGL_FUNCTIONS.gl_color_3f = Some(mem::transmute::<*const c_void, GlColor3fFn>(
+            gl_color_3f_handle,
+        ));
+        OPENGL_FUNCTIONS.gl_enable = Some(mem::transmute::<*const c_void, GlEnableFn>(
+            gl_enable_handle,
+        ));
+        OPENGL_FUNCTIONS.gl_disable = Some(mem::transmute::<*const c_void, GlDisableFn>(
+            gl_disable_handle,
+        ));
 
         Ok(())
     }

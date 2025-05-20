@@ -8,4 +8,5 @@ pub enum Error {
     Player1Error,
     SDLHookError,
     SymbolError,
+    BehindCamera,
 }

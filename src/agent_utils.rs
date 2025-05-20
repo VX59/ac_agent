@@ -1,8 +1,8 @@
-use libc::close;
 use rand::Rng;
 
 use crate::err::Error;
 
+use crate::esp::draw_player_box;
 use crate::hooks::{AC_FUNCTIONS, PROCESS};
 
 #[repr(C)]
@@ -110,7 +110,7 @@ fn vec_distance(from: Vec3, to: Vec3) -> f32 {
 
 fn is_trackable_target(player1: &Playerent, player: &Playerent) -> Result<bool, Error> {
     let mut trackable = false;
-    if player.team != player1.team || player.state == 1 {
+    if player.team != player1.team && player.state != 1 {
         trackable = true;
     }
 
@@ -177,7 +177,14 @@ pub fn process_next_target() -> Result<(), Error> {
         };
 
         if let Some(next_target) = closest_enemy(player1, players)? {
-            // do some stuff here
+            draw_player_box(
+                next_target,
+                Vec3 {
+                    x: 255.0,
+                    y: 0.0,
+                    z: 255.0,
+                },
+            );
         }
 
         Ok(())

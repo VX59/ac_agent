@@ -156,7 +156,7 @@ pub fn draw_rectangle(
     cleanup_draw();
 }
 
-pub fn draw_line(x_a: f32, y_a: f32, x_b: f32, y_b: f32) {
+pub fn draw_line(x_a: f32, y_a: f32, x_b: f32, y_b: f32, color: Vec3) {
     prepare_to_draw();
     unsafe {
         if let Some(gl_disable) = OPENGL_FUNCTIONS.gl_disable {
@@ -165,11 +165,11 @@ pub fn draw_line(x_a: f32, y_a: f32, x_b: f32, y_b: f32) {
         }
 
         if let Some(gl_color_3f) = OPENGL_FUNCTIONS.gl_color_3f {
-            gl_color_3f(255.0, 0.0, 0.0);
+            gl_color_3f(color.x, color.y, color.z);
         }
 
         if let Some(gl_line_width) = OPENGL_FUNCTIONS.gl_line_width {
-            gl_line_width(5.0);
+            gl_line_width(3.0);
         }
 
         if let Some(gl_begin) = OPENGL_FUNCTIONS.gl_begin {
@@ -207,6 +207,32 @@ pub fn draw_player_box(player: *const Playerent, color: Vec3) {
                 head_2d.y,
                 color,
             ); // red line
+        }
+    }
+}
+
+pub fn draw_player_healthbar(player: *const Playerent) {
+    unsafe {
+        let origin = (&*player).o; // use the enemy's position
+        let head = (&*player).head;
+        let health = (&*player).health;
+
+        let normalized_health = health as f32 / 100.0;
+        if let (Ok(origin_2d), Ok(head_2d)) = (transform(origin), transform(head)) {
+            let x_offset = (head_2d.y - origin_2d.y) * 0.5 * 0.5 - 10.0;
+
+            let healthbar_height = (head_2d.y - origin_2d.y) * normalized_health;
+            draw_line(
+                origin_2d.x - x_offset,
+                origin_2d.y,
+                origin_2d.x - x_offset,
+                origin_2d.y + healthbar_height,
+                Vec3 {
+                    x: 255.0,
+                    y: 255.0,
+                    z: 255.0,
+                },
+            );
         }
     }
 }

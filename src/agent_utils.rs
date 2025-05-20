@@ -2,7 +2,7 @@ use rand::Rng;
 
 use crate::err::Error;
 
-use crate::esp::draw_player_box;
+use crate::esp::{draw_player_box, draw_player_healthbar};
 use crate::hooks::{AC_FUNCTIONS, PROCESS};
 
 #[repr(C)]
@@ -185,6 +185,7 @@ pub fn process_next_target() -> Result<(), Error> {
                     z: 255.0,
                 },
             );
+            draw_player_healthbar(next_target);
         }
 
         Ok(())

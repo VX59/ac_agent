@@ -2,6 +2,7 @@ use std::f32::consts::PI;
 
 use crate::agent_utils::{Playerent, Vec3, WorldPos};
 use crate::err::Error;
+use crate::esp::{draw_player_box, draw_player_healthbar, draw_player_traceline};
 use crate::hooks::{AC_FUNCTIONS, PROCESS};
 
 pub fn is_valid_target(player1: &Playerent, player: &Playerent) -> Result<bool, Error> {
@@ -69,7 +70,7 @@ pub fn is_combat_ready(player1: &Playerent) -> Result<bool, Error> {
 pub fn get_best_viewangles(
     player1: &Playerent,
     players: *const *const u64,
-) -> Result<Option<Vec3>, Error> {
+) -> Result<Option<(Vec3, &Playerent)>, Error> {
     unsafe {
         let players_length: usize = {
             let length_addr = (players as u64 + 0xC) as *const u32;
@@ -96,18 +97,21 @@ pub fn get_best_viewangles(
                 (player, is_valid_target(player1, player))
             })
             .filter_map(|(player, result)| match result {
-                Ok(true) => Some(Ok(viewangle(player1, player))),
+                Ok(true) => Some(Ok((viewangle(player1, player), player))),
                 Ok(false) => None,
                 Err(e) => return Some(Err(e)),
             })
             .collect::<Result<Vec<_>, _>>()
             .map(|vec| {
-                vec.into_iter()
-                    .min_by(|a, b| a.z.partial_cmp(&b.z).unwrap_or(std::cmp::Ordering::Equal))
+                vec.into_iter().min_by(|a, b| {
+                    a.0.z
+                        .partial_cmp(&b.0.z)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
             });
 
         match min_view_angle {
-            Ok(Some(vec)) => Ok(Some(vec)),
+            Ok(Some(result)) => Ok(Some(result)),
             Ok(None) => Ok(None),
             Err(e) => Err(e),
         }
@@ -130,7 +134,15 @@ pub fn update_agent_viewangles() -> Result<(), Error> {
             return Err(Error::PlayersListError);
         }
 
-        if let Some(view_angle) = get_best_viewangles(player1, players)? {
+        if let Some((view_angle, player)) = get_best_viewangles(player1, players)? {
+            let color = Vec3 {
+                x: 255.0,
+                y: 0.0,
+                z: 255.0,
+            };
+            draw_player_box(player, color);
+            draw_player_healthbar(player);
+            draw_player_traceline(player, color);
             player1.yaw = view_angle.x;
             player1.pitch = view_angle.y;
         }

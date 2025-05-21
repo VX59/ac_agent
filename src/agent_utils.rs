@@ -1,8 +1,8 @@
-use libc::close;
 use rand::Rng;
 
 use crate::err::Error;
 
+use crate::esp::{draw_player_box, draw_player_healthbar, draw_player_traceline};
 use crate::hooks::{AC_FUNCTIONS, PROCESS};
 
 #[repr(C)]
@@ -53,6 +53,24 @@ pub struct Playerent {
     pub gun_wait: [i32; 9],
     _pad_0x320: [u8; 0x1a4],
     pub team: i32,
+}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct PersistentEnt {
+    pub x: i16,
+    pub y: i16,
+    pub z: i16,
+    pub attr1: i16,
+    pub type_: u8,
+    pub attr2: u8,
+    pub attr3: u8,
+    pub attr4: u8,
+    pub attr5: i16,
+    pub attr6: u8,
+    pub attr7: u8,
+    pub spawned: bool,
+    _pad_0x18: i32,
 }
 
 /// Used in navigation to scan for walls within the yaw range (phi_min, phi_max). Draws k rays in the bounded area
@@ -110,7 +128,7 @@ fn vec_distance(from: Vec3, to: Vec3) -> f32 {
 
 fn is_trackable_target(player1: &Playerent, player: &Playerent) -> Result<bool, Error> {
     let mut trackable = false;
-    if player.team != player1.team || player.state == 1 {
+    if player.team != player1.team && player.state != 1 {
         trackable = true;
     }
 
@@ -177,7 +195,13 @@ pub fn process_next_target() -> Result<(), Error> {
         };
 
         if let Some(next_target) = closest_enemy(player1, players)? {
-            // do some stuff here
+            let color = Vec3 {
+                x: 255.0,
+                y: 255.0,
+                z: 255.0,
+            };
+            draw_player_box(next_target, color);
+            draw_player_traceline(next_target, color);
         }
 
         Ok(())

@@ -4,8 +4,10 @@ pub enum Error {
     DlSymError,
     FindBaseAddrError,
     PlayersListError,
+    EntsListError,
     TraceLineError,
     Player1Error,
     SDLHookError,
     SymbolError,
+    BehindCamera,
 }

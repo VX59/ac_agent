@@ -1,5 +1,5 @@
 use crate::agent_utils::{
-    PersistentEnt, Playerent, Traceresults, Vec3, WorldPos, process_next_target,
+    PersistentEnt, Playerent, Traceresults, Vec3, WorldPos, mod_gun_properties, process_next_target,
 };
 use crate::aimbot_utils::update_agent_viewangles;
 use crate::err::Error;
@@ -110,6 +110,7 @@ unsafe extern "C" fn hook_func(window: *const c_void) {
         let _ = process_next_target();
         let _ = draw_players();
         let _ = draw_entities();
+        let _ = mod_gun_properties();
         match HOOK_ORIGINAL_INNER_FUNC {
             Some(func) => func(window),
             None => (),

@@ -322,9 +322,9 @@ pub fn draw_ent_box(ent: &PersistentEnt, color: Vec3) {
     };
 
     let upper_bound = Vec3 {
-        x: (&*ent).x as f32,
-        y: (&*ent).y as f32,
-        z: (&*ent).z as f32 - 0.5,
+        x: ent.x as f32,
+        y: ent.y as f32,
+        z: ent.z as f32 - 0.5,
     };
 
     if let (Ok(origin_2d), Ok(ub_2d)) = (transform(origin), transform(upper_bound)) {

@@ -2,7 +2,7 @@ use rand::Rng;
 
 use crate::err::Error;
 
-use crate::esp::{draw_player_box, draw_player_healthbar, draw_player_traceline};
+use crate::esp::{draw_player_box, draw_player_traceline};
 use crate::hooks::{AC_FUNCTIONS, PROCESS};
 
 #[repr(C)]
@@ -53,6 +53,41 @@ pub struct Playerent {
     pub gun_wait: [i32; 9],
     _pad_0x320: [u8; 0x1a4],
     pub team: i32,
+    _pad_0x3a0: [u8; 0x78],
+    pub weaponselect: *const Weapon,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct Weapon {
+    _pad_0x10: [u8; 0x10],
+    pub owner: *const Playerent,
+    pub gun_info: *mut Guninfo,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct Guninfo {
+    _pad_0x42: [u8; 0x42],
+    pub sound: i16,
+    pub reload: i16,
+    pub reload_time: i16,
+    pub fire_rate: i16,
+    pub damage: i16,
+    pub piercing: i16,
+    pub projspeed: i16,
+    pub part: i16,
+    pub spread: i16,
+    pub recoil: i16,
+    pub magsize: i16,
+    pub mdl_kick_rot: i16,
+    pub mdl_kick_back: i16,
+    pub recoilincrease: i16,
+    pub recoilbase: i16,
+    pub maxrecoil: i16,
+    pub recoilbackfade: i16,
+    pub pushfactor: i16,
+    pub isauto: i16,
 }
 
 #[repr(C)]
@@ -179,6 +214,31 @@ fn closest_enemy(
             Err(_) => Err(Error::PlayersListError),
         }
     }
+}
+
+pub fn mod_gun_properties() -> Result<(), Error> {
+    unsafe {
+        let player1: &mut Playerent = match PROCESS.player1_ptr {
+            Some(ptr) => &mut *ptr,
+            None => return Err(Error::Player1Error),
+        };
+
+        let player1_guninfo = (&*player1.weaponselect).gun_info;
+
+        (*player1_guninfo).recoilbase = 0;
+        (*player1_guninfo).mdl_kick_back = 0;
+        (*player1_guninfo).mdl_kick_rot = 0;
+        (*player1_guninfo).maxrecoil = 0;
+        (*player1_guninfo).recoil = 0;
+        (*player1_guninfo).pushfactor = 0;
+        (*player1_guninfo).recoilbackfade = 0;
+        (*player1_guninfo).recoilincrease = 0;
+        (*player1_guninfo).spread = 0;
+        (*player1_guninfo).reload_time = 0;
+        (*player1_guninfo).isauto = 1;
+        (*player1_guninfo).fire_rate = 100;
+    }
+    Ok(())
 }
 
 /// used to locate nearest enemy after navigating a path

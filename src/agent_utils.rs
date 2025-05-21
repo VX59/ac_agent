@@ -53,7 +53,9 @@ pub struct Playerent {
     pub gun_wait: [i32; 9],
     _pad_0x320: [u8; 0x1a4],
     pub team: i32,
-    _pad_0x3a0: [u8; 0x78],
+    _pad_0x350: [u8; 0x28],
+    pub weapons: [u64; 9],
+    pub prevweaponsel: *const Weapon,
     pub weaponselect: *const Weapon,
 }
 
@@ -216,27 +218,29 @@ fn closest_enemy(
     }
 }
 
-pub fn mod_gun_properties() -> Result<(), Error> {
+pub fn turn_off_p1_recoil() -> Result<(), Error> {
     unsafe {
         let player1: &mut Playerent = match PROCESS.player1_ptr {
             Some(ptr) => &mut *ptr,
             None => return Err(Error::Player1Error),
         };
 
-        let player1_guninfo = (&*player1.weaponselect).gun_info;
+        player1.weapons.iter().for_each(|&ptr| {
+            let weapon = ptr as *const Weapon;
+            let guninfo = (&*weapon).gun_info;
 
-        (*player1_guninfo).recoilbase = 0;
-        (*player1_guninfo).mdl_kick_back = 0;
-        (*player1_guninfo).mdl_kick_rot = 0;
-        (*player1_guninfo).maxrecoil = 0;
-        (*player1_guninfo).recoil = 0;
-        (*player1_guninfo).pushfactor = 0;
-        (*player1_guninfo).recoilbackfade = 0;
-        (*player1_guninfo).recoilincrease = 0;
-        (*player1_guninfo).spread = 0;
-        (*player1_guninfo).reload_time = 0;
-        (*player1_guninfo).isauto = 1;
-        (*player1_guninfo).fire_rate = 100;
+            (*guninfo).recoilbase = 0;
+            (*guninfo).mdl_kick_back = 0;
+            (*guninfo).mdl_kick_rot = 0;
+            (*guninfo).maxrecoil = 0;
+            (*guninfo).recoil = 0;
+            (*guninfo).pushfactor = 0;
+            (*guninfo).recoilbackfade = 0;
+            (*guninfo).recoilincrease = 0;
+            (*guninfo).spread = 0;
+            (*guninfo).reload_time = 0;
+            (*guninfo).part = 0;
+        });
     }
     Ok(())
 }

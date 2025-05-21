@@ -1,6 +1,9 @@
-use crate::agent_utils::{Playerent, Traceresults, WorldPos, process_next_target};
+use crate::agent_utils::{
+    PersistentEnt, Playerent, Traceresults, Vec3, WorldPos, process_next_target,
+};
 use crate::aimbot_utils::update_agent_viewangles;
 use crate::err::Error;
+use crate::esp::{draw_entities, draw_players};
 use anyhow::Result;
 use anyhow::anyhow;
 use goblin::elf::Elf;
@@ -75,17 +78,21 @@ pub static mut OPENGL_FUNCTIONS: OpenglFunctions = OpenglFunctions {
 pub struct Process {
     pub player1_ptr: Option<*mut Playerent>,
     pub players_ptr: Option<*const *const u64>,
+    pub ents_ptr: Option<*const *const PersistentEnt>,
     pub mvpmatrix_ptr: Option<*const f32>,
     pub screenw_ptr: Option<*const i32>,
     pub screenh_ptr: Option<*const i32>,
+    pub worldpos_ptr: Option<*const Vec3>,
 }
 
 pub static mut PROCESS: Process = Process {
     player1_ptr: None,
     players_ptr: None,
+    ents_ptr: None,
     mvpmatrix_ptr: None,
     screenw_ptr: None,
     screenh_ptr: None,
+    worldpos_ptr: None,
 };
 
 static mut MUTABLE_INNER_FUNC_PTR: Option<*mut unsafe extern "C" fn(*const c_void)> = None;
@@ -101,6 +108,8 @@ unsafe extern "C" fn hook_func(window: *const c_void) {
     unsafe {
         let _ = update_agent_viewangles();
         let _ = process_next_target();
+        let _ = draw_players();
+        let _ = draw_entities();
         match HOOK_ORIGINAL_INNER_FUNC {
             Some(func) => func(window),
             None => (),
@@ -175,6 +184,9 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
         PROCESS.players_ptr =
             Some(get_symbol_address(native_client_addr, "players")? as *const *const u64);
 
+        PROCESS.ents_ptr =
+            Some(get_symbol_address(native_client_addr, "ents")? as *const *const PersistentEnt);
+
         PROCESS.player1_ptr =
             Some(*(get_symbol_address(native_client_addr, "player1")? as *const *mut Playerent));
 
@@ -186,6 +198,9 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
 
         PROCESS.screenh_ptr =
             Some(get_symbol_address(native_client_addr, "screenh")? as *const i32);
+
+        PROCESS.worldpos_ptr =
+            Some(get_symbol_address(native_client_addr, "worldpos")? as *const Vec3);
 
         AC_FUNCTIONS.trace_line_func =
             Some(mem::transmute::<u64, TracelineFn>(get_symbol_address(

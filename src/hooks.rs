@@ -1,5 +1,5 @@
 use crate::agent_utils::{
-    PersistentEnt, Playerent, Traceresults, Vec3, WorldPos, process_next_target,
+    PersistentEnt, Playerent, Traceresults, Vec3, WorldPos, process_next_target, turn_off_p1_recoil,
 };
 use crate::aimbot_utils::update_agent_viewangles;
 use crate::err::Error;
@@ -19,6 +19,7 @@ type SdlGLSwapWindowInnerFn = unsafe extern "C" fn(*const c_void);
 
 type TracelineFn = unsafe extern "C" fn(WorldPos, WorldPos, u64, bool, *const Traceresults);
 type IsVisibleFn = unsafe extern "C" fn(WorldPos, WorldPos, u64, bool) -> bool;
+type DrawTextFn = unsafe extern "C" fn(*const c_char, i32, i32, i32, i32, i32, i32, i32, i32);
 
 type GlBeginFn = unsafe extern "C" fn(i32);
 type GlEndFn = unsafe extern "C" fn();
@@ -36,11 +37,13 @@ type GlPopMatrixFn = unsafe extern "C" fn();
 pub struct AcFunctions {
     pub trace_line_func: Option<TracelineFn>,
     pub is_visible_func: Option<IsVisibleFn>,
+    pub draw_text_func: Option<DrawTextFn>,
 }
 
 pub static mut AC_FUNCTIONS: AcFunctions = AcFunctions {
     trace_line_func: None,
     is_visible_func: None,
+    draw_text_func: None,
 };
 
 pub struct OpenglFunctions {
@@ -106,9 +109,11 @@ macro_rules! cstr_static {
 
 unsafe extern "C" fn hook_func(window: *const c_void) {
     unsafe {
-        let _ = update_agent_viewangles();
-        let _ = process_next_target();
         let _ = draw_players();
+        let _ = process_next_target();
+
+        let _ = update_agent_viewangles();
+
         let _ = draw_entities();
         match HOOK_ORIGINAL_INNER_FUNC {
             Some(func) => func(window),
@@ -211,6 +216,11 @@ pub fn init_hooks(native_client_addr: u64) -> Result<(), Error> {
         AC_FUNCTIONS.is_visible_func = Some(mem::transmute::<u64, IsVisibleFn>(
             get_symbol_address(native_client_addr, "_Z9IsVisible3vecS_P6dynentb")?,
         ));
+
+        AC_FUNCTIONS.draw_text_func = Some(mem::transmute::<u64, DrawTextFn>(get_symbol_address(
+            native_client_addr,
+            "_Z9draw_textPKciiiiiiii",
+        )?));
 
         let opengl_lib_handle: *mut c_void = dlopen(cstr_static!("libGL.so.1.7.0"), RTLD_LAZY);
 

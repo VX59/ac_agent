@@ -1,3 +1,4 @@
+use agent_utils::turn_off_p1_recoil;
 use err::Error;
 use hooks::{find_base_address, init_hooks, recover_sdl_gl_swap_window};
 
@@ -24,7 +25,7 @@ fn init() -> Result<(), Error> {
     let native_client_addr: u64 = find_base_address()?;
     env_logger::init();
     init_hooks(native_client_addr)?;
-
+    let _ = turn_off_p1_recoil();
     Ok(())
 }
 

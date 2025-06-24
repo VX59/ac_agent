@@ -1,6 +1,5 @@
 use crate::{
     agent_utils::{PersistentEnt, Playerent, Vec3, WorldPos},
-    aimbot_utils::is_valid_target,
     err::Error,
     hooks::{AC_FUNCTIONS, OPENGL_FUNCTIONS, PROCESS},
 };
@@ -9,12 +8,16 @@ pub struct GlModes {
     gl_blend: u32,
     gl_texture_2d: u32,
     gl_line_loop: i32,
+    gl_depth_test: u32,
+    gl_cull_face: u32,
 }
 
 static GLMODES: GlModes = GlModes {
     gl_blend: 0x0BE2,
     gl_texture_2d: 0x0DE1,
     gl_line_loop: 0x0002,
+    gl_depth_test: 0x0B71,
+    gl_cull_face: 0x0B44,
 };
 
 /// uses mvpmatrix to project 3d coordinates into 2d space on the screen
@@ -57,6 +60,12 @@ pub fn transform(pos: Vec3) -> Result<Vec3, Error> {
 
 pub fn prepare_to_draw() {
     unsafe {
+        if let Some(gl_disable) = OPENGL_FUNCTIONS.gl_disable {
+            gl_disable(GLMODES.gl_blend);
+            gl_disable(GLMODES.gl_texture_2d);
+            gl_disable(GLMODES.gl_depth_test);
+            gl_disable(GLMODES.gl_cull_face);
+        }
         if let Some(gl_matrix_mode) = OPENGL_FUNCTIONS.gl_matrix_mode {
             gl_matrix_mode(0x1701); // GL_PROJECTION
         }
@@ -95,6 +104,12 @@ pub fn prepare_to_draw() {
 
 pub fn cleanup_draw() {
     unsafe {
+        if let Some(gl_enable) = OPENGL_FUNCTIONS.gl_enable {
+            gl_enable(GLMODES.gl_blend);
+            gl_enable(GLMODES.gl_texture_2d);
+            gl_enable(GLMODES.gl_depth_test);
+            gl_enable(GLMODES.gl_cull_face);
+        }
         if let Some(gl_matrix_mode) = OPENGL_FUNCTIONS.gl_matrix_mode {
             gl_matrix_mode(0x1700); // GL_MODELVIEW
         }
@@ -121,11 +136,6 @@ pub fn draw_rectangle(
     prepare_to_draw();
 
     unsafe {
-        if let Some(gl_disable) = OPENGL_FUNCTIONS.gl_disable {
-            gl_disable(GLMODES.gl_blend);
-            gl_disable(GLMODES.gl_texture_2d);
-        }
-
         if let Some(gl_color_3f) = OPENGL_FUNCTIONS.gl_color_3f {
             gl_color_3f(color.x, color.y, color.z);
         }
@@ -148,11 +158,6 @@ pub fn draw_rectangle(
         if let Some(gl_end) = OPENGL_FUNCTIONS.gl_end {
             gl_end();
         }
-
-        if let Some(gl_enable) = OPENGL_FUNCTIONS.gl_enable {
-            gl_enable(GLMODES.gl_texture_2d);
-            gl_enable(GLMODES.gl_blend);
-        }
     }
     cleanup_draw();
 }
@@ -160,11 +165,6 @@ pub fn draw_rectangle(
 pub fn draw_line(x_a: f32, y_a: f32, x_b: f32, y_b: f32, width: f32, color: Vec3) {
     prepare_to_draw();
     unsafe {
-        if let Some(gl_disable) = OPENGL_FUNCTIONS.gl_disable {
-            gl_disable(GLMODES.gl_blend);
-            gl_disable(GLMODES.gl_texture_2d);
-        }
-
         if let Some(gl_color_3f) = OPENGL_FUNCTIONS.gl_color_3f {
             gl_color_3f(color.x, color.y, color.z);
         }
@@ -218,7 +218,7 @@ pub fn draw_player_box(player: *const Playerent, color: Vec3) {
                 head_2d.x + half_width,
                 head_2d.y,
                 color,
-            ); // red line
+            );
         }
     }
 }
@@ -322,9 +322,9 @@ pub fn draw_ent_box(ent: &PersistentEnt, color: Vec3) {
     };
 
     let upper_bound = Vec3 {
-        x: (&*ent).x as f32,
-        y: (&*ent).y as f32,
-        z: (&*ent).z as f32 - 0.5,
+        x: ent.x as f32,
+        y: ent.y as f32,
+        z: ent.z as f32 - 0.5,
     };
 
     if let (Ok(origin_2d), Ok(ub_2d)) = (transform(origin), transform(upper_bound)) {
